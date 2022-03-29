@@ -12,36 +12,64 @@ struct kv {
     char* value;
 };
 
-struct kv_list { // TODO Modify this to incorporate partitioning
-    struct kv** elements;
-    size_t num_elements;
-    size_t size;
+struct kv_list {
+    struct kv*** elements; //an array
+    size_t *num_elements;
+    size_t *size;
+    size_t num_partitions;
+    Partitioner partition;
 };
 
 struct kv_list kvl;
 size_t kvl_counter;
-u_int num_partitions = 1;
 
-void init_kv_list(size_t size) { // TODO Modify this to incorporate partitioning
-    kvl.elements = (struct kv**) malloc(size * sizeof(struct kv*));
-    kvl.num_elements = 0;
-    kvl.size = size;
+void init_kv_list(size_t size, size_t num_partitions, Partitioner partition) {
+
+    kvl.elements = (struct kv***) malloc(num_partitions * size * sizeof(struct kv*));
+    kvl.num_elements = malloc(num_partitions * sizeof(size_t));
+    kvl.size = malloc(num_partitions * sizeof(size_t));
+
+    for (int i = 0; i < num_partitions; i++) {
+        kvl.size[i] = size;
+    }
+
+    kvl.num_partitions = num_partitions;
+    kvl.partition = partition;
 }
 
+//pthread_mutex_t l_mutex;
+
 // We can modify this to handle partitioning at this level. Maybe add global variable number of partitions?
-void add_to_list(struct kv* elt) { // TODO Modify this to incorporate partitioning
-    if (kvl.num_elements == kvl.size) {
-	kvl.size *= 2;
-	kvl.elements = realloc(kvl.elements, kvl.size * sizeof(struct kv*));
+void add_to_list(struct kv* elt) {
+
+    //pthread_mutex_lock(&l_mutex);
+
+    int p_id;
+    p_id = (*kvl.partition)(elt->key, kvl.num_partitions);
+
+    if (kvl.num_elements[p_id] == kvl.size[p_id]) {
+        for (int i = 0; i < kvl.num_partitions; i++) {
+            kvl.size[i] *= 2;
+        }
+        kvl.elements = realloc(kvl.elements[p_id], kvl.num_partitions * kvl.size[p_id] * sizeof(struct kv*));
     }
-    kvl.elements[kvl.num_elements++] = elt;
+
+    printf("segfault next line!\n");
+
+    kvl.elements[p_id][kvl.num_elements[p_id]] = elt; // THIS LINE IS CRASHING
+
+    //kvl.elements[0][0] = elt;
+    printf("no segfault after all\n");
+    kvl.num_elements[p_id]++;
+
+    //pthread_mutex_unlock(&l_mutex);
 }
 
 char* get_func(char* key, int partition_number) {
-    if (kvl_counter == kvl.num_elements) {
+    if (kvl_counter == kvl.num_elements[partition_number]) {
 	return NULL;
     }
-    struct kv *curr_elt = kvl.elements[kvl_counter];
+    struct kv *curr_elt = kvl.elements[partition_number][kvl_counter];
     if (!strcmp(curr_elt->key, key)) {
 	kvl_counter++;
 	return curr_elt->value;
@@ -71,7 +99,11 @@ void MR_Emit(char* key, char* value)
 
 // TODO  
 unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
-    return 0;
+    unsigned long hash = 5381;
+    int c;
+    while ((c = *key++) != '\0')
+        hash = hash * 33 + c;
+    return hash % num_partitions;
 }
 
 struct map_args {
@@ -104,7 +136,6 @@ void *map_thread(void *arg)
 
 struct reduce_args {
     Reducer reduce;
-    Partitioner partition;
     int num_args;
     struct kv** kv;
 }reduce_args;
@@ -116,14 +147,13 @@ void *reduce_thread(void *arg)
     struct reduce_args *reducer_args;
     reducer_args = (struct reduce_args *) arg;
     Reducer reduce = reducer_args->reduce;
-    Partitioner partition = reducer_args->partition;
     int num_args = reducer_args->num_args;
 
     for (int i = 0; i < num_args; i++) {
         char* key = reducer_args->kv[i]->key;
 
         pthread_mutex_lock(&r_mutex);
-	    (*reduce)(key, get_func, (*partition)(key, num_partitions));
+	    (*reduce)(key, get_func, (*kvl.partition)(key, kvl.num_partitions));
         pthread_mutex_unlock(&r_mutex);
     }
 
@@ -135,8 +165,7 @@ void *reduce_thread(void *arg)
 void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
 	    Reducer reduce, int num_reducers, Partitioner partition)
 {
-    num_partitions = num_reducers;
-    init_kv_list(10);
+    init_kv_list(10, num_reducers, partition);
 
     pthread_t thread_ids[num_mappers];
 
@@ -197,32 +226,36 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
 
     pthread_t r_thread_ids[num_reducers];
 
-    struct kv* r_args_per_thread[num_reducers][kvl.num_elements];
-    int r_num_args[num_reducers];
+    // struct kv* r_args_per_thread[num_reducers][kvl.num_elements];
+    // int r_num_args[num_reducers];
 
-     // DON'T DELETE THIS EITHER
-    for (int i = 0; i < num_reducers; i++) {
-        r_num_args[i] = 0;
-    }
+    //  // DON'T DELETE THIS EITHER
+    // for (int i = 0; i < num_reducers; i++) {
+    //     r_num_args[i] = 0;
+    // }
 
-    thread_count = 0;
-    place_count = 0;
+    // thread_count = 0;
+    // place_count = 0;
     
-    // iterates through kv-pairs, assigns them to threads
-    for (int i = 0; i < kvl.num_elements; i++) {
+    // // iterates through kv-pairs, assigns them to threads
+    // for (int i = 0; i < kvl.num_elements; i++) {
         
-        struct kv* kv_ptr = kvl.elements[i];
-        r_args_per_thread[thread_count][place_count] = kv_ptr;
-        r_num_args[thread_count] += 1;
+    //     struct kv* kv_ptr = kvl.elements[i];
+    //     r_args_per_thread[thread_count][place_count] = kv_ptr;
+    //     r_num_args[thread_count] += 1;
 
-        thread_count++;
+    //     thread_count++;
 
-        if (thread_count >= num_reducers) {
-            thread_count = 0;
-            place_count++;
-        }
+    //     if (thread_count >= num_reducers) {
+    //         thread_count = 0;
+    //         place_count++;
+    //     }
+    // }
+
+    // Sorts the elements so they are in order like specified
+    for (int i = 0; i < kvl.num_partitions; i++) {
+        qsort(kvl.elements[i], kvl.num_elements[i], sizeof(struct kv*), cmp);
     }
-
 
     // array for pthread create calls
     struct reduce_args* r_result[num_reducers];
@@ -233,9 +266,10 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
     
         reducer_args = malloc(sizeof(reduce_args));
         reducer_args->reduce = reduce;
-        reducer_args->partition = partition;
-        reducer_args->kv = r_args_per_thread[i];
-        reducer_args->num_args = r_num_args[i];
+        // reducer_args->partition = partition;
+        // reducer_args->kv = r_args_per_thread[i];
+        reducer_args->kv = kvl.elements[i];
+        reducer_args->num_args = kvl.num_elements[i];
 
         r_result[i] = reducer_args;
     }
@@ -250,15 +284,11 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
         pthread_join(r_thread_ids[i], NULL);
     }
 
-
-    // Sorts the elements so they are in order like specified
-    qsort(kvl.elements, kvl.num_elements, sizeof(struct kv*), cmp);
-
-    // note that in the single-threaded version, we don't really have
-    // partitions. We just use a global counter to keep it really simple
-    kvl_counter = 0;
-    while (kvl_counter < kvl.num_elements) {
-	(*reduce)((kvl.elements[kvl_counter])->key, get_func, 0);
-    }
+    // // note that in the single-threaded version, we don't really have
+    // // partitions. We just use a global counter to keep it really simple
+    // kvl_counter = 0;
+    // while (kvl_counter < kvl.num_elements) {
+	// (*reduce)((kvl.elements[kvl_counter])->key, get_func, 0);
+    // }
 
 }

@@ -251,9 +251,6 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
     }
 
 
-    
-
-
     // Sorts the elements so they are in order like specified
     qsort(kvl.elements, kvl.num_elements, sizeof(struct kv*), cmp);
 

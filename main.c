@@ -9,13 +9,16 @@
 HashMap* hashmap;
 
 void Map(char *file_name) {
+    
     FILE *fp = fopen(file_name, "r");
     assert(fp != NULL);
 
     char *line = NULL;
     size_t size = 0;
     while (getline(&line, &size, fp) != -1) {
+
         char *token, *dummy = line;
+        
         while ((token = strsep(&dummy, " \t\n\r")) != NULL) {
 	    if (!strcmp(token, ""))
 		break;
@@ -45,15 +48,17 @@ void Reduce(char *key, Getter get_next, int partition_number) {
  * is printed. */
 
 int main(int argc, char *argv[]) {
+
     if (argc < 3) {
 	printf("Invalid usage: ./hashmap <filename> ... <searchterm>\n");
 	return 1;
     }
-    
+
     hashmap = MapInit();
     // save the searchterm
     char* searchterm = argv[argc - 1];
     argc -= 1;
+
 
     // run mapreduce
     MR_Run(argc, argv, Map, 10, Reduce, 10, MR_DefaultHashPartition);

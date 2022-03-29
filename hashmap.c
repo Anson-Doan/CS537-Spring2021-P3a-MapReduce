@@ -2,17 +2,22 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 #include "hashmap.h"
 
 #define FNV_OFFSET 14695981039346656037UL
 #define FNV_PRIME 1099511628211UL
 
+pthread_mutex_t mutex;
+
 HashMap* MapInit(void)
 {
+    pthread_mutex_lock(&mutex);
     HashMap* hashmap = (HashMap*) malloc(sizeof(HashMap));
     hashmap->contents = (MapPair**) calloc(MAP_INIT_CAPACITY, sizeof(MapPair*));
     hashmap->capacity = MAP_INIT_CAPACITY;
     hashmap->size = 0;
+    pthread_mutex_unlock(&mutex);
     return hashmap;
 }
 
@@ -24,6 +29,7 @@ void MapPut(HashMap* hashmap, char* key, void* value, int value_size)
 	}
     }
     
+    pthread_mutex_lock(&mutex);
     MapPair* newpair = (MapPair*) malloc(sizeof(MapPair));
     int h;
 
@@ -37,6 +43,7 @@ void MapPut(HashMap* hashmap, char* key, void* value, int value_size)
 	if (!strcmp(key, hashmap->contents[h]->key)) {
 	    free(hashmap->contents[h]);
 	    hashmap->contents[h] = newpair;
+        pthread_mutex_unlock(&mutex);
 	    return;
 	}
 	h++;
@@ -47,6 +54,7 @@ void MapPut(HashMap* hashmap, char* key, void* value, int value_size)
     // key not found in hashmap, h is an empty slot
     hashmap->contents[h] = newpair;
     hashmap->size += 1;
+    pthread_mutex_unlock(&mutex);
 }
 
 char* MapGet(HashMap* hashmap, char* key)
@@ -74,10 +82,12 @@ int resize_map(HashMap* map)
     MapPair** temp;
     size_t newcapacity = map->capacity * 2; // double the capacity
 
+    pthread_mutex_lock(&mutex);
     // allocate a new hashmap table
     temp = (MapPair**) calloc(newcapacity, sizeof(MapPair*));
     if (temp == NULL) {
 	printf("Malloc error! %s\n", strerror(errno));
+    pthread_mutex_unlock(&mutex);
 	return -1;
     }
 
@@ -104,6 +114,7 @@ int resize_map(HashMap* map)
     // update contents with the new table, increase hashmap capacity
     map->contents = temp;
     map->capacity = newcapacity;
+    pthread_mutex_unlock(&mutex);
     return 0;
 }
 

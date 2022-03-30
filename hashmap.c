@@ -32,7 +32,8 @@ void MapPut(HashMap* hashmap, char* key, void* value, int value_size)
     pthread_mutex_lock(&mutex);
     MapPair* newpair = (MapPair*) malloc(sizeof(MapPair));
     int h;
-
+    
+    
     newpair->key = strdup(key);
     newpair->value = (void *)malloc(value_size);
     memcpy(newpair->value, value, value_size);
@@ -59,8 +60,11 @@ void MapPut(HashMap* hashmap, char* key, void* value, int value_size)
 
 char* MapGet(HashMap* hashmap, char* key)
 {
+    
     int h = Hash(key, hashmap->capacity);
+    
     while (hashmap->contents[h] != NULL) {
+        
 	if (!strcmp(key, hashmap->contents[h]->key)) {
 	    return hashmap->contents[h]->value;
 	}
@@ -121,6 +125,7 @@ int resize_map(HashMap* map)
 // FNV-1a hashing algorithm
 // https://en.wikipedia.org/wiki/Fowler-Noll-Vo_hash_function#FNV-1a_hash
 size_t Hash(char* key, size_t capacity) {
+    
     size_t hash = FNV_OFFSET;
     for (const char *p = key; *p; p++) {
 	hash ^= (size_t)(unsigned char)(*p);

@@ -35,19 +35,23 @@ struct kv_list* init_kv_list(size_t size) {
 }
 
 void add_to_list(struct kv* elt) {
-    int p_id = (*partitioner)(elt->key, n_partitions);
+    int part_id = (*partitioner)(elt->key, n_partitions);
 
-    //pthread_mutex_lock(&p_mutex_plural[p_id]);
-    pthread_mutex_lock(&bottleneck); // TODO delete this once we resolve problems with the array
+    //printf("locking partition %i\n", part_id);
+    pthread_mutex_lock(&p_mutex_plural[part_id]);
+    //printf("locked\n");
+    //pthread_mutex_lock(&bottleneck); // TODO delete this once we resolve problems with the array
     
-    if (partitions[p_id]->num_elements == partitions[p_id]->size) {
-        partitions[p_id]->size *= 2;
-        partitions[p_id]->elements = realloc(partitions[p_id]->elements, partitions[p_id]->size * sizeof(struct kv*));
+    if (partitions[part_id]->num_elements == partitions[part_id]->size) {
+        partitions[part_id]->size *= 2;
+        partitions[part_id]->elements = realloc(partitions[part_id]->elements, partitions[part_id]->size * sizeof(struct kv*));
     }
-    partitions[p_id]->elements[partitions[p_id]->num_elements++] = elt;
+    partitions[part_id]->elements[partitions[part_id]->num_elements++] = elt;
 
-    //pthread_mutex_unlock(&p_mutex_plural[p_id]);
-    pthread_mutex_unlock(&bottleneck); // TODO delete this once we resolve problems with the array
+    //printf("unlocking partition %i\n", part_id);
+    pthread_mutex_unlock(&p_mutex_plural[part_id]);
+    //printf("unlocked\n");
+    //pthread_mutex_unlock(&bottleneck); // TODO delete this once we resolve problems with the array
 }
 
 char* get_func(char* key, int partition_number) {
@@ -68,8 +72,7 @@ int cmp(const void* a, const void* b) {
     return strcmp(str1, str2);
 }
 
-void MR_Emit(char* key, char* value)
-{
+void MR_Emit(char* key, char* value) {
     struct kv *elt = (struct kv*) malloc(sizeof(struct kv));
     if (elt == NULL) {
 	printf("Malloc error! %s\n", strerror(errno));
@@ -112,7 +115,6 @@ void *map_thread(void *arg)
     return NULL;
 }
 
-
 // REDUCERS helper functions
 
 struct reduce_args {
@@ -122,8 +124,7 @@ struct reduce_args {
 
 pthread_mutex_t r_mutex;
 
-void *reduce_thread(void *arg)
-{
+void *reduce_thread(void *arg) {
     struct reduce_args *reducer_args;
     reducer_args = (struct reduce_args *) arg;
     Reducer reduce = reducer_args->reduce;
@@ -149,6 +150,10 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
     }
 
     p_mutex_plural = (pthread_mutex_t*) malloc(n_partitions * sizeof(pthread_mutex_t));
+
+    for (int i = 0; i < n_partitions; i++) {
+        pthread_mutex_init(&p_mutex_plural[i], NULL);
+    }
 
     kvl_counters = malloc(n_partitions * sizeof(size_t));
     for (int i = 0; i < n_partitions; i++) {
@@ -208,9 +213,11 @@ void MR_Run(int argc, char *argv[], Mapper map, int num_mappers,
         pthread_join(thread_ids[i], NULL);
     }
 
+    for (int i = 0; i < n_partitions; i++) {
+        pthread_mutex_destroy(&p_mutex_plural[i]);
+    }
 
-
-    // REDUCERS ________________________________________________________
+    // REDUCERS
 
     pthread_t r_thread_ids[num_reducers];
 

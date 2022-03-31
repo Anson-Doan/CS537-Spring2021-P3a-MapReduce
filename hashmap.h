@@ -12,6 +12,7 @@ typedef struct {
     MapPair** contents;
     size_t capacity;
     size_t size;
+    pthread_rwlock_t rwlock;
 } HashMap;
 
 
